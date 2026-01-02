@@ -1,0 +1,83 @@
+{
+  "name": "Add new Shopify order to Google Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "topic": "orders/create"
+      },
+      "type": "n8n-nodes-base.shopifyTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3d97d96b-ceea-4b01-88ea-d506db9a11a9",
+      "name": "Shopify Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json\nconst output = []\n\n// Precompute dates to avoid recalculating for each item\nconst today = new Date()\n\nfunction formatDate(date) {\n  return date.toLocaleString('en-US', {\n    timeZone: 'America/New_York',\n    year: '2-digit',\n    month: '2-digit',\n    day: '2-digit'\n  })\n}\n\nconst orderNumber = input.name.substring(1)\nconst todayFormatted = formatDate(today)\n\ninput.line_items.forEach(lineItem => {\n  const quantity = lineItem.quantity || 1\n  for (let i = 1; i <= quantity; i++) {\n    output.push({\n      json: {\n        orderNumber,\n        date: todayFormatted,\n        status: 'New'\n      }\n    })\n  }\n})\n\nreturn output"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "61b4670f-2223-47bc-8770-30860edd3987",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        416,
+        0
+      ],
+      "id": "45f170f6-5188-420e-bf14-b8c7786401c1",
+      "name": "Append row in sheet"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Shopify Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
