@@ -1,0 +1,198 @@
+{
+  "name": "Gmail Support Email Router with AI Classification",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "includeSpamTrash": false,
+          "labelIds": [],
+          "readStatus": "unread"
+        }
+      },
+      "id": "7d2e287e-7b55-48c4-a40a-f076b11a6780",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        160,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": "={{ $json.labelId }}"
+      },
+      "id": "3f1ecfb3-a35f-442f-8fd3-e6fed82f93ef",
+      "name": "Apply Gmail Label",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        960,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Map Category to Config').item.json.channel }}",
+          "mode": "name"
+        },
+        "text": "={{ $('Map Category to Config').item.json.emoji }} *{{ $('Map Category to Config').item.json.title }}*\n\n*From:* {{ $('Gmail Trigger').item.json.From }}\n*Subject:* {{ $('Gmail Trigger').item.json.Subject }}\n*Snippet:* {{ $('Gmail Trigger').item.json.snippet }}\n*Tag:* {{ $('Map Category to Config').item.json.label }}\n\n<{{ $('Map Category to Config').item.json.emailLink }}|View Email in Gmail>",
+        "otherOptions": {}
+      },
+      "id": "a9ae6f70-01a1-4070-b480-c4f665b95c66",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        392,
+        512
+      ],
+      "id": "13953fd8-6e02-4738-b6ae-2c64259ce778",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"category\": [\"urgent\", \"bug\", \"billing\", \"feature_request\", \"general\"]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        520,
+        512
+      ],
+      "id": "2ceff34c-7b3d-407e-90e0-e9690c5300bb",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// IMPORTANT: Replace the labelId values below with your own Gmail label IDs\n// You can find these by going to Gmail > Settings > Labels or using the Gmail API\n\nconst CATEGORIES = {\n  urgent: {\n    label: 'Urgent',\n    labelId: 'REPLACE_WITH_YOUR_URGENT_LABEL_ID',\n    channel: '#support-urgent',\n    emoji: '🚨',\n    title: 'URGENT Support Request'\n  },\n  bug: {\n    label: 'Bug',\n    labelId: 'REPLACE_WITH_YOUR_BUG_LABEL_ID',\n    channel: '#support-bugs',\n    emoji: '🐛',\n    title: 'New Bug Report'\n  },\n  billing: {\n    label: 'Billing',\n    labelId: 'REPLACE_WITH_YOUR_BILLING_LABEL_ID',\n    channel: '#support-billing',\n    emoji: '💳',\n    title: 'New Billing Issue'\n  },\n  feature_request: {\n    label: 'Feature',\n    labelId: 'REPLACE_WITH_YOUR_FEATURE_LABEL_ID',\n    channel: '#support-features',\n    emoji: '💡',\n    title: 'New Feature Request'\n  },\n  general: {\n    label: 'General',\n    labelId: 'REPLACE_WITH_YOUR_GENERAL_LABEL_ID',\n    channel: '#support-general',\n    emoji: '📧',\n    title: 'General Support Request'\n  }\n};\n\nconst emailLink = `https://mail.google.com/mail/u/0/#inbox/${$('Gmail Trigger').item.json.id}`;\n\nreturn {\n  json: {\n    ...CATEGORIES[$json.output.category[0]],\n    emailLink: emailLink\n  }\n};"
+      },
+      "id": "26983a32-a3a1-4794-acf3-1aadfbbd08f0",
+      "name": "Map Category to Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an email classification assistant for a customer support system. Your task is to analyze incoming support emails and classify them into ONE of the following categories:\n\n- **urgent**: Requires immediate attention (uses words like urgent, asap, critical, emergency, down, not working for critical features)\n- **bug**: Technical issues, errors, crashes, broken functionality\n- **billing**: Payment issues, invoices, refunds, subscriptions, charges\n- **feature_request**: Suggestions for new features, enhancements, improvements\n- **general**: General questions, inquiries, or anything that doesn't fit the above categories\n\nIMPORTANT: Respond with ONLY the category name in lowercase (urgent, bug, billing, feature_request, or general). Do not include any explanation, punctuation, or additional text.\n\nEmail Subject: {{ $json.Subject }}\nEmail text: {{ $json.snippet }}",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        384,
+        288
+      ],
+      "id": "acc530e7-07f9-4efc-88ad-b376725633cb",
+      "name": "Classify Email"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Classify Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Gmail Label": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify Email",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Category to Config": {
+      "main": [
+        [
+          {
+            "node": "Apply Gmail Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Email": {
+      "main": [
+        [
+          {
+            "node": "Map Category to Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
