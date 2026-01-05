@@ -1,0 +1,538 @@
+{
+  "name": "Inbound Lead Deduplication",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "lead-intake",
+        "formTitle": "Lead Submission Form",
+        "formDescription": "Submit new lead information",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "First Name",
+              "fieldType": "text",
+              "requiredField": true,
+              "fieldName": "first_name"
+            },
+            {
+              "fieldLabel": "Last Name",
+              "fieldType": "text",
+              "requiredField": true,
+              "fieldName": "last_name"
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": false,
+              "fieldName": "email"
+            },
+            {
+              "fieldLabel": "Phone",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldName": "phone"
+            },
+            {
+              "fieldLabel": "Company",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldName": "company"
+            },
+            {
+              "fieldLabel": "Source",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldName": "source"
+            },
+            {
+              "fieldLabel": "Notes",
+              "fieldType": "textarea",
+              "requiredField": false,
+              "fieldName": "notes"
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldName": "country"
+            },
+            {
+              "fieldLabel": "UTM Source",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldName": "utm_source"
+            },
+            {
+              "fieldLabel": "UTM Campaign",
+              "fieldType": "text",
+              "requiredField": false,
+              "fieldName": "utm_campaign"
+            },
+            {
+              "fieldLabel": "Marketing Consent",
+              "fieldType": "dropdown",
+              "requiredField": false,
+              "fieldName": "consent_marketing",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "lead-intake-form"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize inbound lead data\nconst item = $input.item.json;\n\n// Email normalization\nlet email_norm = null;\nlet has_email = false;\nlet is_valid_email = false;\n\nif (item.email && item.email.trim()) {\n  email_norm = item.email.trim().toLowerCase();\n  has_email = true;\n  \n  // Basic email validation\n  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n  is_valid_email = emailRegex.test(email_norm);\n  \n  // Remove Gmail plus tags\n  if (email_norm.includes('@gmail.com') || email_norm.includes('@googlemail.com')) {\n    const parts = email_norm.split('@');\n    const localPart = parts[0].split('+')[0];\n    email_norm = localPart + '@' + parts[1];\n  }\n}\n\n// Phone normalization\nlet phone_digits = null;\nlet phone_e164 = null;\nlet has_phone = false;\nlet is_valid_phone = false;\n\nif (item.phone && item.phone.trim()) {\n  // Extract only digits\n  phone_digits = item.phone.replace(/\\D/g, '');\n  has_phone = phone_digits.length > 0;\n  \n  // E.164 formatting\n  if (phone_digits.length === 10 && item.country === 'US') {\n    phone_e164 = '+1' + phone_digits;\n    is_valid_phone = true;\n  } else if (phone_digits.length >= 11 && phone_digits.length <= 15) {\n    phone_e164 = '+' + phone_digits;\n    is_valid_phone = true;\n  }\n}\n\n// Dedupe key logic\nlet dedupe_key_primary = null;\nif (email_norm) {\n  dedupe_key_primary = email_norm;\n} else if (phone_e164) {\n  dedupe_key_primary = phone_e164;\n} else if (phone_digits) {\n  dedupe_key_primary = phone_digits;\n}\n\nreturn {\n  ...item,\n  email_norm,\n  has_email,\n  is_valid_email,\n  phone_digits,\n  phone_e164,\n  has_phone,\n  is_valid_phone,\n  dedupe_key_primary,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "name": "Normalize Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "id": "normalize-node",
+      "notes": "Normalizes email (lowercase, trim, Gmail+ removal) and phone (extract digits, E.164 format). Creates dedupe_key_primary."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json.email_norm && !$json.phone_digits }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check Valid Contact Info",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "=⚠️ *Manual Review Required*\n\n*Lead submitted without valid email or phone:*\n• Name: {{ $json.first_name }} {{ $json.last_name }}\n• Company: {{ $json.company }}\n• Source: {{ $json.source }}\n• Timestamp: {{ $json.timestamp }}\n\nPlease review and manually add to CRM.",
+        "otherOptions": {}
+      },
+      "name": "Alert Slack - Manual Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [850, 150],
+      "credentials": {
+        "slackApi": {
+          "id": "1",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "lead_dedupe_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "first_name": "={{ $json.first_name }}",
+            "last_name": "={{ $json.last_name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "company": "={{ $json.company }}",
+            "source": "={{ $json.source }}",
+            "action": "manual_review",
+            "reason": "No valid email or phone provided"
+          }
+        },
+        "options": {}
+      },
+      "name": "Log to Sheets - Manual Review",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1050, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "email_norm",
+              "lookupValue": "={{ $json.email_norm }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search by Email",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [850, 400],
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "phone_e164",
+              "lookupValue": "={{ $json.phone_e164 || $json.phone_digits }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Search by Phone",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [850, 550],
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine and score search results\nconst allItems = $input.all();\nconst originalLead = $('Normalize Lead Data').item.json;\n\nlet matches = [];\nlet emailMatches = [];\nlet phoneMatches = [];\n\n// Separate email and phone matches\nfor (const item of allItems) {\n  if (item.json.email_norm === originalLead.email_norm && originalLead.email_norm) {\n    emailMatches.push(item.json);\n  }\n  if ((item.json.phone_e164 === originalLead.phone_e164 && originalLead.phone_e164) ||\n      (item.json.phone_digits === originalLead.phone_digits && originalLead.phone_digits)) {\n    phoneMatches.push(item.json);\n  }\n}\n\n// Score matches: email exact match = 100, phone exact match = 80\nlet bestMatch = null;\nlet bestScore = 0;\n\nfor (const match of emailMatches) {\n  const score = 100;\n  if (score > bestScore) {\n    bestScore = score;\n    bestMatch = { ...match, match_type: 'email', match_score: score };\n  }\n}\n\nfor (const match of phoneMatches) {\n  const score = 80;\n  if (score > bestScore) {\n    bestScore = score;\n    bestMatch = { ...match, match_type: 'phone', match_score: score };\n  }\n}\n\nreturn {\n  ...originalLead,\n  existing_lead: bestMatch,\n  has_match: bestMatch !== null,\n  match_score: bestScore\n};"
+      },
+      "name": "Combine and Score Matches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 475],
+      "notes": "Combines email and phone search results. Scores matches: email exact = 100, phone exact = 80. Returns best match."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.has_match }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Has Existing Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 475]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "first_name": "={{ $json.first_name }}",
+            "last_name": "={{ $json.last_name }}",
+            "email": "={{ $json.email }}",
+            "email_norm": "={{ $json.email_norm }}",
+            "phone": "={{ $json.phone }}",
+            "phone_digits": "={{ $json.phone_digits }}",
+            "phone_e164": "={{ $json.phone_e164 }}",
+            "company": "={{ $json.company }}",
+            "source": "={{ $json.source }}",
+            "notes": "={{ $json.notes }}",
+            "country": "={{ $json.country }}",
+            "utm_source": "={{ $json.utm_source }}",
+            "utm_campaign": "={{ $json.utm_campaign }}",
+            "consent_marketing": "={{ $json.consent_marketing }}",
+            "dedupe_key_primary": "={{ $json.dedupe_key_primary }}",
+            "status": "new"
+          }
+        },
+        "options": {}
+      },
+      "name": "Add New Lead to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1450, 600],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "lead_dedupe_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "first_name": "={{ $json.first_name }}",
+            "last_name": "={{ $json.last_name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "company": "={{ $json.company }}",
+            "source": "={{ $json.source }}",
+            "action": "added_new",
+            "reason": "No existing match found"
+          }
+        },
+        "options": {}
+      },
+      "name": "Log to Sheets - New Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1650, 600],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "lead_dedupe_log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "first_name": "={{ $json.first_name }}",
+            "last_name": "={{ $json.last_name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "company": "={{ $json.company }}",
+            "source": "={{ $json.source }}",
+            "action": "duplicate_found",
+            "reason": "={{ 'Match found by ' + $json.existing_lead.match_type + ' (score: ' + $json.match_score + ')' }}",
+            "existing_lead_id": "={{ $json.existing_lead.row_number }}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Log to Sheets - Duplicate",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1450, 350],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Check Valid Contact Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Valid Contact Info": {
+      "main": [
+        [
+          {
+            "node": "Alert Slack - Manual Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search by Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search by Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Slack - Manual Review": {
+      "main": [
+        [
+          {
+            "node": "Log to Sheets - Manual Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search by Email": {
+      "main": [
+        [
+          {
+            "node": "Combine and Score Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search by Phone": {
+      "main": [
+        [
+          {
+            "node": "Combine and Score Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine and Score Matches": {
+      "main": [
+        [
+          {
+            "node": "Has Existing Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Existing Lead?": {
+      "main": [
+        [
+          {
+            "node": "Log to Sheets - Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add New Lead to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add New Lead to Sheets": {
+      "main": [
+        [
+          {
+            "node": "Log to Sheets - New Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-05T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,826 @@
+{
+  "name": "Real Estate Scraper with Apify",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "SourceName",
+              "value": "Zillow"
+            },
+            {
+              "name": "APIFY_ACTOR_ID",
+              "value": "={{$env.APIFY_ACTOR_ID}}"
+            },
+            {
+              "name": "APIFY_API_TOKEN",
+              "value": "={{$env.APIFY_API_TOKEN}}"
+            },
+            {
+              "name": "APIFY_RUN_INPUT",
+              "value": "={{$env.APIFY_RUN_INPUT}}"
+            },
+            {
+              "name": "AIRTABLE_BASE_ID",
+              "value": "={{$env.AIRTABLE_BASE_ID}}"
+            },
+            {
+              "name": "AIRTABLE_TABLE_NAME",
+              "value": "={{$env.AIRTABLE_TABLE_NAME}}"
+            },
+            {
+              "name": "AIRTABLE_API_KEY",
+              "value": "={{$env.AIRTABLE_API_KEY}}"
+            },
+            {
+              "name": "SLACK_WEBHOOK_URL",
+              "value": "={{$env.SLACK_WEBHOOK_URL}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-config",
+      "name": "Set Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/{{$node[\"Set Config\"].json[\"APIFY_ACTOR_ID\"]}}/runs?token={{$node[\"Set Config\"].json[\"APIFY_API_TOKEN\"]}}",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=",
+              "value": "={{JSON.parse($node[\"Set Config\"].json[\"APIFY_RUN_INPUT\"])}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "start-apify-actor",
+      "name": "Start Apify Actor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const runId = $input.item.json.data.id;\nconst actorId = $node[\"Set Config\"].json[\"APIFY_ACTOR_ID\"];\nconst token = $node[\"Set Config\"].json[\"APIFY_API_TOKEN\"];\n\nreturn {\n  json: {\n    runId: runId,\n    actorId: actorId,\n    token: token,\n    pollCount: 0\n  }\n};"
+      },
+      "id": "extract-run-id",
+      "name": "Extract Run ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-before-poll",
+      "name": "Wait Before Poll",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        300
+      ],
+      "webhookId": "wait-webhook"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/actor-runs/{{$json[\"runId\"]}}?token={{$json[\"token\"]}}",
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "poll-run-status",
+      "name": "Poll Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{$json[\"data\"][\"status\"]}}",
+              "rightValue": "SUCCEEDED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-status-succeeded",
+      "name": "Check Status Succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $input.item.json;\nconst pollCount = (prevData.pollCount || 0) + 1;\n\nif (pollCount > 40) {\n  throw new Error('Apify Actor run timeout after 40 polls');\n}\n\nreturn {\n  json: {\n    runId: prevData.runId || prevData.data.id,\n    actorId: prevData.actorId,\n    token: prevData.token,\n    pollCount: pollCount\n  }\n};"
+      },
+      "id": "increment-poll-count",
+      "name": "Increment Poll Count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const runData = $input.item.json.data;\nconst datasetId = runData.defaultDatasetId;\n\nreturn {\n  json: {\n    datasetId: datasetId,\n    token: $node[\"Extract Run ID\"].json[\"token\"]\n  }\n};"
+      },
+      "id": "extract-dataset-id",
+      "name": "Extract Dataset ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{$json[\"datasetId\"]}}/items?clean=true&token={{$json[\"token\"]}}",
+        "authentication": "none",
+        "options": {}
+      },
+      "id": "fetch-dataset-items",
+      "name": "Fetch Dataset Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-listings",
+      "name": "Split Listings",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst source = $node[\"Set Config\"].json[\"SourceName\"];\n\nfunction parseNumber(val) {\n  if (val === null || val === undefined || val === '') return null;\n  const str = String(val).replace(/[^0-9.-]/g, '');\n  const num = parseFloat(str);\n  return isNaN(num) ? null : num;\n}\n\nfunction normalizeAddress(addr) {\n  if (!addr) return '';\n  return String(addr).trim().replace(/\\s+/g, ' ').toLowerCase();\n}\n\nconst listingId = item.listingId || item.id || '';\nconst address = item.address || '';\nconst normalizedAddress = normalizeAddress(address);\n\nconst uniqueKey = listingId \n  ? `${source}:${listingId}` \n  : `${source}:${normalizedAddress}`;\n\nconst now = new Date().toISOString();\n\nreturn {\n  json: {\n    UniqueKey: uniqueKey,\n    Source: source,\n    ListingURL: item.listingUrl || item.url || '',\n    ListingID: listingId,\n    Address: address,\n    City: item.city || '',\n    State: item.state || '',\n    ZIP: item.zip || item.zipcode || '',\n    Neighborhood: item.neighborhood || '',\n    Price: parseNumber(item.price),\n    Beds: parseNumber(item.beds || item.bedrooms),\n    Baths: parseNumber(item.baths || item.bathrooms),\n    Sqft: parseNumber(item.sqft || item.squareFeet),\n    Status: item.status || '',\n    LastSeenAt: now,\n    rawData: item\n  }\n};"
+      },
+      "id": "normalize-data",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{$node[\"Set Config\"].json[\"AIRTABLE_BASE_ID\"]}}/{{$node[\"Set Config\"].json[\"AIRTABLE_TABLE_NAME\"]}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "={UniqueKey}=\"{{$json[\"UniqueKey\"]}}\""
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$node[\"Set Config\"].json[\"AIRTABLE_API_KEY\"]}}"
+            }
+          ]
+        }
+      },
+      "id": "search-airtable",
+      "name": "Search Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-exists",
+              "leftValue": "={{$json[\"body\"][\"records\"].length}}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-record-exists",
+      "name": "Check Record Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const normalized = $node[\"Normalize Data\"].json;\nconst searchResult = $input.item.json.body;\nconst existingRecord = searchResult.records[0];\nconst existingFields = existingRecord.fields;\n\nconst currentPrice = normalized.Price;\nconst prevPrice = existingFields.Price || existingFields.PrevPrice || currentPrice;\nconst priceChange = currentPrice !== null && prevPrice !== null ? currentPrice - prevPrice : 0;\nconst isPriceDrop = priceChange < 0;\n\nreturn {\n  json: {\n    recordId: existingRecord.id,\n    UniqueKey: normalized.UniqueKey,\n    Source: normalized.Source,\n    ListingURL: normalized.ListingURL,\n    ListingID: normalized.ListingID,\n    Address: normalized.Address,\n    City: normalized.City,\n    State: normalized.State,\n    ZIP: normalized.ZIP,\n    Neighborhood: normalized.Neighborhood,\n    Price: currentPrice,\n    PrevPrice: prevPrice,\n    PriceChange: priceChange,\n    Beds: normalized.Beds,\n    Baths: normalized.Baths,\n    Sqft: normalized.Sqft,\n    Status: normalized.Status,\n    FirstSeenAt: existingFields.FirstSeenAt,\n    LastSeenAt: normalized.LastSeenAt,\n    IsNew: false,\n    IsPriceDrop: isPriceDrop\n  }\n};"
+      },
+      "id": "prepare-update",
+      "name": "Prepare Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{$node[\"Set Config\"].json[\"AIRTABLE_BASE_ID\"]}}/{{$node[\"Set Config\"].json[\"AIRTABLE_TABLE_NAME\"]}}/{{$json[\"recordId\"]}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "={{ { \"Price\": $json[\"Price\"], \"PrevPrice\": $json[\"PrevPrice\"], \"PriceChange\": $json[\"PriceChange\"], \"Beds\": $json[\"Beds\"], \"Baths\": $json[\"Baths\"], \"Sqft\": $json[\"Sqft\"], \"Status\": $json[\"Status\"], \"LastSeenAt\": $json[\"LastSeenAt\"], \"IsPriceDrop\": $json[\"IsPriceDrop\"], \"ListingURL\": $json[\"ListingURL\"] } }}"
+            }
+          ]
+        },
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$node[\"Set Config\"].json[\"AIRTABLE_API_KEY\"]}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "update-airtable",
+      "name": "Update Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const normalized = $node[\"Normalize Data\"].json;\nconst now = new Date().toISOString();\n\nreturn {\n  json: {\n    UniqueKey: normalized.UniqueKey,\n    Source: normalized.Source,\n    ListingURL: normalized.ListingURL,\n    ListingID: normalized.ListingID,\n    Address: normalized.Address,\n    City: normalized.City,\n    State: normalized.State,\n    ZIP: normalized.ZIP,\n    Neighborhood: normalized.Neighborhood,\n    Price: normalized.Price,\n    PrevPrice: normalized.Price,\n    PriceChange: 0,\n    Beds: normalized.Beds,\n    Baths: normalized.Baths,\n    Sqft: normalized.Sqft,\n    Status: normalized.Status,\n    FirstSeenAt: now,\n    LastSeenAt: normalized.LastSeenAt,\n    IsNew: true,\n    IsPriceDrop: false\n  }\n};"
+      },
+      "id": "prepare-create",
+      "name": "Prepare Create",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.airtable.com/v0/{{$node[\"Set Config\"].json[\"AIRTABLE_BASE_ID\"]}}/{{$node[\"Set Config\"].json[\"AIRTABLE_TABLE_NAME\"]}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "={{ { \"UniqueKey\": $json[\"UniqueKey\"], \"Source\": $json[\"Source\"], \"ListingURL\": $json[\"ListingURL\"], \"ListingID\": $json[\"ListingID\"], \"Address\": $json[\"Address\"], \"City\": $json[\"City\"], \"State\": $json[\"State\"], \"ZIP\": $json[\"ZIP\"], \"Neighborhood\": $json[\"Neighborhood\"], \"Price\": $json[\"Price\"], \"PrevPrice\": $json[\"PrevPrice\"], \"PriceChange\": $json[\"PriceChange\"], \"Beds\": $json[\"Beds\"], \"Baths\": $json[\"Baths\"], \"Sqft\": $json[\"Sqft\"], \"Status\": $json[\"Status\"], \"FirstSeenAt\": $json[\"FirstSeenAt\"], \"LastSeenAt\": $json[\"LastSeenAt\"], \"IsNew\": $json[\"IsNew\"], \"IsPriceDrop\": $json[\"IsPriceDrop\"] } }}"
+            }
+          ]
+        },
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$node[\"Set Config\"].json[\"AIRTABLE_API_KEY\"]}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "create-airtable",
+      "name": "Create Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-upsert-results",
+      "name": "Merge Upsert Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst isNew = item.IsNew === true;\nconst isPriceDrop = item.IsPriceDrop === true;\n\nreturn {\n  json: {\n    ...item,\n    shouldNotify: isNew || isPriceDrop\n  }\n};"
+      },
+      "id": "check-notification-needed",
+      "name": "Check Notification Needed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-notify",
+              "leftValue": "={{$json[\"shouldNotify\"]}}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-should-notify",
+      "name": "If Should Notify",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$node[\"Set Config\"].json[\"SLACK_WEBHOOK_URL\"]}}",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=🏠 *{{ $json[\"IsNew\"] ? \"New Listing\" : \"Price Drop\" }}*\n\n*Address:* {{ $json[\"Address\"] }}\n*City:* {{ $json[\"City\"] }}, {{ $json[\"State\"] }} {{ $json[\"ZIP\"] }}\n*Price:* ${{ $json[\"Price\"] ? $json[\"Price\"].toLocaleString() : 'N/A' }}{{ $json[\"IsPriceDrop\"] ? \" (was $\" + $json[\"PrevPrice\"].toLocaleString() + \", dropped $\" + Math.abs($json[\"PriceChange\"]).toLocaleString() + \")\" : \"\" }}\n*Beds:* {{ $json[\"Beds\"] || 'N/A' }} | *Baths:* {{ $json[\"Baths\"] || 'N/A' }} | *Sqft:* {{ $json[\"Sqft\"] ? $json[\"Sqft\"].toLocaleString() : 'N/A' }}\n*Status:* {{ $json[\"Status\"] }}\n*URL:* {{ $json[\"ListingURL\"] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-slack-notification",
+      "name": "Send Slack Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "no-op-continue",
+      "name": "No Notification Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3980,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-after-notification",
+      "name": "Merge After Notification",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        4200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Config": {
+      "main": [
+        [
+          {
+            "node": "Start Apify Actor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Apify Actor": {
+      "main": [
+        [
+          {
+            "node": "Extract Run ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Run ID": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Poll": {
+      "main": [
+        [
+          {
+            "node": "Poll Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Run Status": {
+      "main": [
+        [
+          {
+            "node": "Check Status Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Status Succeeded": {
+      "main": [
+        [
+          {
+            "node": "Extract Dataset ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Increment Poll Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Poll Count": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Dataset ID": {
+      "main": [
+        [
+          {
+            "node": "Fetch Dataset Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Dataset Items": {
+      "main": [
+        [
+          {
+            "node": "Split Listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Listings": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          {
+            "node": "Search Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Airtable": {
+      "main": [
+        [
+          {
+            "node": "Check Record Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Record Exists": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update": {
+      "main": [
+        [
+          {
+            "node": "Update Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Airtable": {
+      "main": [
+        [
+          {
+            "node": "Merge Upsert Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Create": {
+      "main": [
+        [
+          {
+            "node": "Create Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Airtable": {
+      "main": [
+        [
+          {
+            "node": "Merge Upsert Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Upsert Results": {
+      "main": [
+        [
+          {
+            "node": "Check Notification Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Notification Needed": {
+      "main": [
+        [
+          {
+            "node": "If Should Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Should Notify": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Notification Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Merge After Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Notification Needed": {
+      "main": [
+        [
+          {
+            "node": "Merge After Notification",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge After Notification": {
+      "main": [
+        [
+          {
+            "node": "Split Listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
