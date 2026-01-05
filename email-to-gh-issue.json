@@ -1,0 +1,179 @@
+{
+  "name": "Support Email to GH Issue",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "name": "Email Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [320, 176],
+      "id": "<NODE_ID_EMAIL_TRIGGER>",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "<CRED_ID_GMAIL_OAUTH2>",
+          "name": "<CRED_NAME_GMAIL_OAUTH2>"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "title",
+              "value": "={{'[Support] ' + ($json.subject || '')}}"
+            },
+            {
+              "name": "body",
+              "value": "={{'From: ' + ($json.from.value[0].address || '') + '\\n' + 'Received: ' + ($json.date || '') + \"\\n\\n---\\n\" + ($json.text || '')}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Format Issue",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [768, 176],
+      "id": "<NODE_ID_FORMAT_ISSUE>"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "owner": {
+          "__rl": true,
+          "value": "<GITHUB_OWNER>",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "<GITHUB_REPOSITORY>",
+          "mode": ""
+        },
+        "title": "={{$json.title}}",
+        "body": "={{$json.body}}",
+        "labels": [],
+        "assignees": []
+      },
+      "name": "Create GitHub Issue",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [992, 176],
+      "id": "<NODE_ID_CREATE_GH_ISSUE>",
+      "webhookId": "<WEBHOOK_ID_GITHUB_NODE>",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "<CRED_ID_GITHUB_OAUTH2>",
+          "name": "<CRED_NAME_GITHUB_OAUTH2>"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{$node['Email Trigger'].json.id}}",
+        "labelIds": ["<GMAIL_LABEL_ID>"]
+      },
+      "name": "Email Action",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1216, 176],
+      "id": "<NODE_ID_EMAIL_ACTION>",
+      "webhookId": "<WEBHOOK_ID_GMAIL_ACTION_NODE>",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "<CRED_ID_GMAIL_OAUTH2>",
+          "name": "<CRED_NAME_GMAIL_OAUTH2>"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [544, 176],
+      "id": "<NODE_ID_GET_MESSAGE>",
+      "name": "Get a message",
+      "webhookId": "<WEBHOOK_ID_GMAIL_GET_NODE>",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "<CRED_ID_GMAIL_OAUTH2>",
+          "name": "<CRED_NAME_GMAIL_OAUTH2>"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Email Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Issue": {
+      "main": [
+        [
+          {
+            "node": "Create GitHub Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create GitHub Issue": {
+      "main": [
+        [
+          {
+            "node": "Email Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Format Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "<VERSION_ID>",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "<N8N_INSTANCE_ID>"
+  },
+  "id": "<WORKFLOW_ID>",
+  "tags": []
+}
