@@ -1,0 +1,170 @@
+{
+  "name": "Daily Pipeline Snapshot to Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 8
+            }
+          ]
+        }
+      },
+      "id": "REDACTED_NODE_ID_CRON",
+      "name": "Cron 8am ET (Daily)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#CHANNEL_NAME_OR_ID_HERE",
+          "mode": "name"
+        },
+        "text": "=*📊 Daily Pipeline Snapshot*\n\n*Total Open:* {{ $json.Open }}\n\n*By Stage:*\n• *Open*: {{ $json.Open }}\n• *Won*: {{ $json['Closed Won'] }}\n• *Lost*: {{ $json['Closed Lost'] }}\n_Updated daily at 8:00 AM ET_",
+        "otherOptions": {}
+      },
+      "id": "REDACTED_NODE_ID_SLACK",
+      "name": "Slack - Post Snapshot",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -48
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "REDACTED_CRED_ID",
+          "name": "Slack (REDACTED)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "REDACTED_SPREADSHEET_ID",
+          "mode": "list",
+          "cachedResultName": "REDACTED_SHEET_NAME",
+          "cachedResultUrl": "REDACTED_URL"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "REDACTED_SHEET_GID_OR_NAME",
+          "mode": "list",
+          "cachedResultName": "REDACTED_TAB_NAME",
+          "cachedResultUrl": "REDACTED_URL"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -544,
+        -48
+      ],
+      "id": "REDACTED_NODE_ID_SHEETS",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REDACTED_CRED_ID",
+          "name": "Google Sheets (REDACTED)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const counts = {};\n\nfor (const deal of $input.first().json.deals) {\n  let status = (deal.Status ?? '').toString().trim();\n\n  if (!status) {\n    status = 'Unknown';\n  }\n\n  counts[status] = (counts[status] || 0) + 1;\n}\n\nreturn counts;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -48
+      ],
+      "id": "REDACTED_NODE_ID_CODE",
+      "name": "Code in JavaScript",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "deals",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -48
+      ],
+      "id": "REDACTED_NODE_ID_AGG",
+      "name": "Aggregate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cron 8am ET (Daily)": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "REDACTED_VERSION_ID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "REDACTED_INSTANCE_ID"
+  },
+  "id": "REDACTED_WORKFLOW_ID",
+  "tags": []
+}
